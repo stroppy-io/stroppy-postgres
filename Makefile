@@ -46,7 +46,7 @@ DRIVER_OUT_FILE=$(CURDIR)/build/$(POSTGRES_DRIVER_NAME)
 .PHONY: build
 build: # Build k6 module
 	mkdir -p $(CURDIR)/build
-	go build -v -o $(DRIVER_OUT_FILE) $(CURDIR)/cmd/postgres
+	CGO_ENABLED=0 go build -a -ldflags '-extldflags "-static"' -v -o $(DRIVER_OUT_FILE) $(CURDIR)/cmd/postgres
 
 branch=main
 .PHONY: revision
