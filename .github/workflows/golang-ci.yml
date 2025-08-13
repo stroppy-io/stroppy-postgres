@@ -2,8 +2,13 @@ name: CI
 
 on:
   push:
+    branches:
+      - '**'   # all branches
+    tags-ignore:
+      - '*'    # ignore all tags
   pull_request:
-
+    branches:
+      - '**'   # all branches
 jobs:
   golang-ci:
     runs-on: ubuntu-latest
