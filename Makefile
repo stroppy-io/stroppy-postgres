@@ -27,6 +27,10 @@ GOPROXY:=https://goproxy.io,direct
 .app-deps: # Install application dependencies in ./bin
 	GOPROXY=$(GOPROXY) go mod tidy
 
+.PHONY: update-core
+update-core: # Update core by latest version
+	go get github.com/stroppy-io/stroppy-core@latest
+
 .PHONY: linter
 linter: # Start linter
 	$(LOCAL_BIN)/golangci-lint cache clean

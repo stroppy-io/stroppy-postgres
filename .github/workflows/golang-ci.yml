@@ -2,15 +2,14 @@ name: CI
 
 on:
   push:
-    tags:
-      - '*'
+  pull_request:
 
 jobs:
   golang-ci:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -25,15 +24,6 @@ jobs:
 
       - name: Run tests
         run: make tests
-
-      - name: Build
-        run: make build
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: postgres-artifacts
-          path: build
 
   release:
     runs-on: ubuntu-latest

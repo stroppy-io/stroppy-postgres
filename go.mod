@@ -10,7 +10,7 @@ require (
 	github.com/pashagolub/pgxmock/v4 v4.8.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.10.0
-	github.com/stroppy-io/stroppy-core v0.0.1
+	github.com/stroppy-io/stroppy-core v0.0.2
 	go.uber.org/zap v1.27.0
 	google.golang.org/protobuf v1.36.7
 )
