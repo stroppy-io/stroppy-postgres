@@ -127,6 +127,9 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: ${{ steps.gather.outputs.files }}
+          make_latest: true
+          draft: false
+          prerelease: false
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
