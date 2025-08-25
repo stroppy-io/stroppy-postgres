@@ -24,14 +24,34 @@ func TestParseConfig_Success(t *testing.T) {
 			},
 		},
 	}
-	cfg, err := parseConfig(params, logger.Global())
-	require.NoError(t, err)
-	require.Equal(t, "postgres://user:pass@localhost:5432/db", cfg.ConnString())
-	require.Equal(t, int32(10), cfg.MaxConns)
-	require.Equal(t, int32(1), cfg.MinConns)
-	require.Equal(t, int32(2), cfg.MinIdleConns)
-	require.Equal(t, time.Hour, cfg.MaxConnLifetime)
-	require.Equal(t, 10*time.Minute, cfg.MaxConnIdleTime)
+
+	t.Run("allConfigured", func(t *testing.T) {
+		cfg, err := parseConfig(params, logger.Global())
+		require.NoError(t, err)
+		require.Equal(t, "postgres://user:pass@localhost:5432/db", cfg.ConnString())
+		require.Equal(t, int32(10), cfg.MaxConns)
+		require.Equal(t, int32(1), cfg.MinConns)
+		require.Equal(t, int32(2), cfg.MinIdleConns)
+		require.Equal(t, time.Hour, cfg.MaxConnLifetime)
+		require.Equal(t, 10*time.Minute, cfg.MaxConnIdleTime)
+	})
+
+	t.Run("statementCache", func(t *testing.T) {
+		params := params
+		params.DbSpecific.Fields = append(params.DbSpecific.Fields,
+			&stroppy.Value{
+				Type: &stroppy.Value_String_{String_: "cache_statement"},
+				Key:  "default_query_exec_mode",
+			},
+			&stroppy.Value{
+				Type: &stroppy.Value_Int32{Int32: 1000},
+				Key:  "statement_cache_capacity",
+			},
+		)
+		cfg, err := parseConfig(params, logger.Global())
+		require.NoError(t, err)
+		require.Equal(t, 1000, cfg.ConnConfig.StatementCacheCapacity)
+	})
 }
 
 func TestNewDriverConfig_InvalidDuration(t *testing.T) {
