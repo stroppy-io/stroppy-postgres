@@ -2,6 +2,10 @@ package pool
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	pgxdecimal "github.com/jackc/pgx-shopspring-decimal"
@@ -27,6 +31,27 @@ const (
 	maxConnsKey        = "max_conns"
 	minConnsKey        = "min_conns"
 	minIdleConnsKey    = "min_idle_conns"
+
+	defaultQueryExecModeKey     = "default_query_exec_mode"
+	descriptionCacheCapacityKey = "description_cache_capacity"
+	statementCacheCapacityKey   = "statement_cache_capacity"
+)
+
+var (
+	ErrUnsupportedParam                = errors.New("unsupported parameter")
+	ErrDescriptionCacheCapacityMissUse = fmt.Errorf(
+		`"%s" is valid only with "%s" set to "%s"`,
+		descriptionCacheCapacityKey,
+		defaultQueryExecModeKey,
+		pgx.QueryExecModeCacheDescribe.String(),
+	)
+
+	ErrStatementCacheCapacityMissUse = fmt.Errorf(
+		`"%s" is valid only with "%s" set to "%s"`,
+		statementCacheCapacityKey,
+		defaultQueryExecModeKey,
+		pgx.QueryExecModeCacheStatement.String(),
+	)
 )
 
 func parseConfig(
@@ -97,6 +122,11 @@ func parseConfig(
 		cfg.MinIdleConns = minIdleConns.(int32) //nolint: errcheck,forcetypeassert // allow panic
 	}
 
+	err = parsePgxOptimizations(cfgMap, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
 		pgxdecimal.Register(conn.TypeMap())
 
@@ -104,6 +134,70 @@ func parseConfig(
 	}
 
 	return cfg, nil
+}
+
+func parsePgxOptimizations(cfgMap map[string]any, cfg *pgxpool.Config) error {
+	var (
+		err                  error
+		defaultQueryExecMode pgx.QueryExecMode
+	)
+
+	if rawAny, exists := cfgMap[defaultQueryExecModeKey]; exists {
+		rawStr := rawAny.(string) //nolint: errcheck,forcetypeassert // allow panic
+
+		defaultQueryExecMode, err = parseDefaultQueryExecMode(rawStr)
+		if err != nil {
+			return err
+		}
+
+		cfg.ConnConfig.DefaultQueryExecMode = defaultQueryExecMode
+	} else {
+		// NOTE: Testing purpouse default query execution mode is "exec".
+		// Stroppy aim is to test database performance, not the driver.
+		// So by default pgx's driver level optimizations disabled.
+		// Second potentially useful value is "simple_protocol".
+		// e.g. If some pg-like db not support extended binary protocol.
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	}
+
+	if rawAny, exists := cfgMap[descriptionCacheCapacityKey]; exists {
+		if defaultQueryExecMode != pgx.QueryExecModeCacheDescribe {
+			return ErrDescriptionCacheCapacityMissUse
+		}
+
+		descriptionCacheCapacity := rawAny.(int32) //nolint: errcheck,forcetypeassert // allow panic
+		cfg.ConnConfig.DescriptionCacheCapacity = int(descriptionCacheCapacity)
+	}
+
+	if rawAny, exists := cfgMap[statementCacheCapacityKey]; exists {
+		if defaultQueryExecMode != pgx.QueryExecModeCacheStatement {
+			return ErrStatementCacheCapacityMissUse
+		}
+
+		statementCacheCapacity := rawAny.(int32) //nolint: errcheck,forcetypeassert // allow panic
+		cfg.ConnConfig.StatementCacheCapacity = int(statementCacheCapacity)
+	}
+
+	return nil
+}
+
+func parseDefaultQueryExecMode(modeStr string) (pgx.QueryExecMode, error) {
+	optMap := map[string]pgx.QueryExecMode{
+		"cache_statement": pgx.QueryExecModeCacheStatement,
+		"cache_describe":  pgx.QueryExecModeCacheDescribe,
+		"describe_exec":   pgx.QueryExecModeDescribeExec,
+		"exec":            pgx.QueryExecModeExec,
+		"simple_protocol": pgx.QueryExecModeSimpleProtocol,
+	}
+	if mode, exists := optMap[modeStr]; exists {
+		return mode, nil
+	}
+
+	return 0, fmt.Errorf(`"%s" invalid for "%s" key; supported values are %v: %w`,
+		modeStr, defaultQueryExecModeKey,
+		slices.Collect(maps.Keys(optMap)),
+		ErrUnsupportedParam,
+	)
 }
 
 func NewPool(
