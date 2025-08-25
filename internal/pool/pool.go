@@ -152,7 +152,7 @@ func parsePgxOptimizations(cfgMap map[string]any, cfg *pgxpool.Config) error {
 
 		cfg.ConnConfig.DefaultQueryExecMode = defaultQueryExecMode
 	} else {
-		// NOTE: Testing purpouse default query execution mode is "exec".
+		// NOTE: Testing purpose default query execution mode is "exec".
 		// Stroppy aim is to test database performance, not the driver.
 		// So by default pgx's driver level optimizations disabled.
 		// Second potentially useful value is "simple_protocol".
