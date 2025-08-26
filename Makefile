@@ -29,7 +29,6 @@ GOPROXY:=https://goproxy.io,direct
 
 .PHONY: update-core
 update-core: # Update core by latest version
-	go get github.com/username/repo@none
 	go get -u github.com/stroppy-io/stroppy-core@latest
 
 .PHONY: linter

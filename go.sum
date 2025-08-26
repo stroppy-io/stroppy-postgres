@@ -68,6 +68,8 @@ github.com/stroppy-io/stroppy-core v0.0.1 h1:ONe4Q6AETJ/QzwVX9sP864EPmTcohcG8FA1
 github.com/stroppy-io/stroppy-core v0.0.1/go.mod h1:Tm37Vj2Qul9muzTZPj9jetdwzoyX/fLeNjaOUKegYWg=
 github.com/stroppy-io/stroppy-core v0.0.2 h1:jZYUewNsoRKTFB9I2UtWAiHUVFIxyAPzSkUk/gi+GgY=
 github.com/stroppy-io/stroppy-core v0.0.2/go.mod h1:Tm37Vj2Qul9muzTZPj9jetdwzoyX/fLeNjaOUKegYWg=
+github.com/stroppy-io/stroppy-core v0.0.3 h1:vwFhPka4+3AZIy5r1c0IwobLtPFcNr7d2bb76S4vLds=
+github.com/stroppy-io/stroppy-core v0.0.3/go.mod h1:Tm37Vj2Qul9muzTZPj9jetdwzoyX/fLeNjaOUKegYWg=
 go.opentelemetry.io/auto/sdk v1.1.0 h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA=
 go.opentelemetry.io/auto/sdk v1.1.0/go.mod h1:3wSPjt5PWp2RhlCcmmOial7AvC4DQqZb7a7wCow3W8A=
 go.opentelemetry.io/otel v1.36.0 h1:UumtzIklRBY6cI/lllNZlALOF5nNIzJVb16APdvgTXg=
