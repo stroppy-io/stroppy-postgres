@@ -18,8 +18,8 @@ type testDriver struct {
 func newTestDriver(mockPool pgxmock.PgxPoolIface) *testDriver {
 	return &testDriver{
 		Driver: &Driver{
-			logger:   logger.Global(),
-			connPool: mockPool,
+			logger:  logger.Global(),
+			pgxPool: mockPool,
 		},
 	}
 }
@@ -32,15 +32,19 @@ func TestDriver_RunQuery(t *testing.T) {
 	drv := newTestDriver(mock)
 
 	ctx := context.Background()
-	query := &stroppy.DriverQuery{
-		Name:    "test_query",
-		Request: "SELECT 1",
-		Params:  nil,
+	query := &stroppy.DriverTransaction{
+		Queries: []*stroppy.DriverQuery{
+			{
+				Name:    "test_query",
+				Request: "SELECT 1",
+				Params:  nil,
+			},
+		},
 	}
 
 	mock.ExpectExec("SELECT 1").WillReturnResult(pgxmock.NewResult("SELECT", 1))
 
-	err = drv.RunQuery(ctx, query)
+	err = drv.RunTransaction(ctx, query)
 	require.NoError(t, err)
 
 	require.NoError(t, mock.ExpectationsWereMet())

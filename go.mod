@@ -3,6 +3,8 @@ module github.com/stroppy-io/stroppy-postgres
 go 1.24.3
 
 require (
+	github.com/avito-tech/go-transaction-manager/drivers/pgxv5/v2 v2.0.1
+	github.com/avito-tech/go-transaction-manager/trm/v2 v2.0.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx-shopspring-decimal v0.0.0-20220624020537-1d36b5a1853e
 	github.com/jackc/pgx/v5 v5.7.5
@@ -10,7 +12,7 @@ require (
 	github.com/pashagolub/pgxmock/v4 v4.8.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.10.0
-	github.com/stroppy-io/stroppy-core v0.0.3
+	github.com/stroppy-io/stroppy-core v0.0.7
 	go.uber.org/zap v1.27.0
 	google.golang.org/protobuf v1.36.7
 )

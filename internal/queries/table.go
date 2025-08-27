@@ -8,24 +8,29 @@ import (
 	"go.uber.org/zap"
 
 	stroppy "github.com/stroppy-io/stroppy-core/pkg/proto"
+	"github.com/stroppy-io/stroppy-core/pkg/utils/errchan"
 )
 
 func newIndex(
 	tableName string,
 	index *stroppy.IndexDescriptor,
-) (*stroppy.DriverQuery, error) { //nolint: unparam // maybe later
-	return &stroppy.DriverQuery{
-		Name: "create_index_" + index.GetName(),
-		Request: "CREATE INDEX IF NOT EXISTS " +
-			index.GetName() + " ON " +
-			tableName + " (" + strings.Join(index.GetColumns(), ", ") + ");",
+) (*stroppy.DriverTransaction, error) { //nolint: unparam // maybe later
+	return &stroppy.DriverTransaction{
+		Queries: []*stroppy.DriverQuery{
+			{
+				Name: "create_index_" + index.GetName(),
+				Request: "CREATE INDEX IF NOT EXISTS " +
+					index.GetName() + " ON " +
+					tableName + " (" + strings.Join(index.GetColumns(), ", ") + ");",
+			},
+		},
 	}, nil
 }
 
 func newCreateTable(
 	tableName string,
 	columns []*stroppy.ColumnDescriptor,
-) (*stroppy.DriverQuery, error) { //nolint: unparam // maybe later
+) (*stroppy.DriverTransaction, error) { //nolint: unparam // maybe later
 	columnsStr := make([]string, len(columns))
 
 	for i, column := range columns {
@@ -55,10 +60,14 @@ func newCreateTable(
 		)
 	}
 
-	return &stroppy.DriverQuery{
-		Name: "create_table_" + tableName,
-		Request: "CREATE TABLE IF NOT EXISTS " +
-			tableName + " (" + strings.Join(columnsStr, ", ") + ");",
+	return &stroppy.DriverTransaction{
+		Queries: []*stroppy.DriverQuery{
+			{
+				Name: "create_table_" + tableName,
+				Request: "CREATE TABLE IF NOT EXISTS " +
+					tableName + " (" + strings.Join(columnsStr, ", ") + ");",
+			},
+		},
 	}, nil
 }
 
@@ -68,17 +77,21 @@ func NewCreateTable(
 	lg *zap.Logger,
 	_ uint64,
 	descriptor *stroppy.TableDescriptor,
-) (*stroppy.DriverQueriesList, error) {
+	channel errchan.Chan[stroppy.DriverTransaction],
+) {
+	defer errchan.Close[stroppy.DriverTransaction](channel)
 	lg.Debug("build table",
 		zap.String("name", descriptor.GetName()),
 		zap.Any("columns", descriptor.GetColumns()))
 
-	queries := make([]*stroppy.DriverQuery, 0)
-
 	createTableQ, err := newCreateTable(descriptor.GetName(), descriptor.GetColumns())
 	if err != nil {
-		return nil, err
+		errchan.Send[stroppy.DriverTransaction](channel, nil, err)
+
+		return
 	}
+
+	errchan.Send[stroppy.DriverTransaction](channel, createTableQ, err)
 
 	lg.Debug("create table query",
 		zap.String("name", descriptor.GetName()),
@@ -87,12 +100,12 @@ func NewCreateTable(
 		zap.Error(err),
 	)
 
-	queries = append(queries, createTableQ)
-
 	for _, index := range descriptor.GetTableIndexes() {
 		indexQ, err := newIndex(descriptor.GetName(), index)
 		if err != nil {
-			return nil, err
+			errchan.Send[stroppy.DriverTransaction](channel, nil, err)
+
+			return
 		}
 
 		lg.Debug("create index query",
@@ -102,10 +115,6 @@ func NewCreateTable(
 			zap.Error(err),
 		)
 
-		queries = append(queries, indexQ)
+		errchan.Send[stroppy.DriverTransaction](channel, indexQ, nil)
 	}
-
-	return &stroppy.DriverQueriesList{
-		Queries: queries,
-	}, nil
 }

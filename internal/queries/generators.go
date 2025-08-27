@@ -32,7 +32,7 @@ func collectQueryGenerators(
 		paramID := NewGeneratorID(runContext.GetStep().GetName(), queryDescriptor.GetName(), param.GetName())
 
 		generator, err := generate.NewValueGenerator(
-			runContext.GetConfig().GetSeed(),
+			runContext.GetGlobalConfig().GetRun().GetSeed(),
 			queryDescriptor.GetCount(),
 			param,
 		)
@@ -49,10 +49,10 @@ func collectQueryGenerators(
 func CollectStepGenerators(runContext *stroppy.StepContext) (Generators, error) { //nolint: gocognit // allow
 	generators := cmap.NewStringer[GeneratorID, generate.ValueGenerator]()
 
-	for _, step := range runContext.GetBenchmark().GetSteps() {
-		for _, queryDescriptor := range step.GetQueries() {
+	for _, step := range runContext.GetGlobalConfig().GetBenchmark().GetSteps() {
+		for _, queryDescriptor := range step.GetUnits() {
 			switch queryDescriptor.GetType().(type) {
-			case *stroppy.StepQueryDescriptor_Query:
+			case *stroppy.StepUnitDescriptor_Query:
 				gens, err := collectQueryGenerators(runContext, queryDescriptor.GetQuery())
 				if err != nil {
 					return generators, err
@@ -60,7 +60,7 @@ func CollectStepGenerators(runContext *stroppy.StepContext) (Generators, error) 
 
 				generators.MSet(gens.Items())
 
-			case *stroppy.StepQueryDescriptor_Transaction:
+			case *stroppy.StepUnitDescriptor_Transaction:
 				for _, query := range queryDescriptor.GetTransaction().GetQueries() {
 					gens, err := collectQueryGenerators(runContext, query)
 					if err != nil {

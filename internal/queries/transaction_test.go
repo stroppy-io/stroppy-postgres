@@ -4,11 +4,14 @@ import (
 	"context"
 	"testing"
 
+	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/stroppy-io/stroppy-core/pkg/generate"
 	stroppy "github.com/stroppy-io/stroppy-core/pkg/proto"
+	"github.com/stroppy-io/stroppy-core/pkg/utils/errchan"
 )
 
 func TestNewTransaction_Success(t *testing.T) {
@@ -31,37 +34,43 @@ func TestNewTransaction_Success(t *testing.T) {
 	}
 	step := &stroppy.StepDescriptor{
 		Name: "test",
-		Queries: []*stroppy.StepQueryDescriptor{
+		Units: []*stroppy.StepUnitDescriptor{
 			{
-				Type: &stroppy.StepQueryDescriptor_Transaction{
+				Type: &stroppy.StepUnitDescriptor_Transaction{
 					Transaction: descriptor,
 				},
 			},
 		},
 	}
 	buildContext := &stroppy.StepContext{
-		Config: &stroppy.RunConfig{
-			Seed: 42,
-		},
-		Step: step,
-		Benchmark: &stroppy.BenchmarkDescriptor{
-			Steps: []*stroppy.StepDescriptor{
-				step,
+		GlobalConfig: &stroppy.Config{
+			Run: &stroppy.RunConfig{
+				Seed: 42,
 			},
 		},
+		Step: step,
 	}
+
+	generators := cmap.NewStringer[GeneratorID, generate.ValueGenerator]()
+	paramID := NewGeneratorID("test", "q1", "id")
+	generator, err := generate.NewValueGenerator(42, 1, descriptor.GetQueries()[0].GetParams()[0])
+	require.NoError(t, err)
+	generators.Set(paramID, generator)
+
 	ctx := context.Background()
 	lg := zap.NewNop()
-	gens, err := CollectStepGenerators(buildContext)
+
+	channel := make(errchan.Chan[stroppy.DriverTransaction], 1)
+	go func() {
+		NewTransaction(ctx, lg, generators, buildContext, descriptor, channel)
+	}()
+
+	transactions, err := errchan.Collect[stroppy.DriverTransaction](channel)
 	require.NoError(t, err)
-	qlist, err := NewTransaction(ctx, lg, gens, buildContext, descriptor)
-	require.NoError(t, err)
-	require.NotNil(t, qlist)
-	require.Len(t, qlist.Queries, 3)
-	require.Equal(t, beginTransaction, qlist.Queries[0].Request)
-	require.Equal(t, "SELECT * FROM t WHERE id=$1", qlist.Queries[1].Request)
-	require.Equal(t, commitTransaction, qlist.Queries[2].Request)
-	require.Equal(t, int32(10), qlist.Queries[1].Params[0].GetInt32())
+	require.Len(t, transactions, 1)
+	require.Len(t, transactions[0].Queries, 1)
+	require.Equal(t, "SELECT * FROM t WHERE id=$1", transactions[0].Queries[0].Request)
+	require.Equal(t, int32(10), transactions[0].Queries[0].Params[0].GetInt32())
 }
 
 func TestNewTransaction_Isolation(t *testing.T) {
@@ -85,35 +94,41 @@ func TestNewTransaction_Isolation(t *testing.T) {
 	}
 	step := &stroppy.StepDescriptor{
 		Name: "test",
-		Queries: []*stroppy.StepQueryDescriptor{
+		Units: []*stroppy.StepUnitDescriptor{
 			{
-				Type: &stroppy.StepQueryDescriptor_Transaction{
+				Type: &stroppy.StepUnitDescriptor_Transaction{
 					Transaction: descriptor,
 				},
 			},
 		},
 	}
 	buildContext := &stroppy.StepContext{
-		Config: &stroppy.RunConfig{
-			Seed: 42,
-		},
-		Step: step,
-		Benchmark: &stroppy.BenchmarkDescriptor{
-			Steps: []*stroppy.StepDescriptor{
-				step,
+		GlobalConfig: &stroppy.Config{
+			Run: &stroppy.RunConfig{
+				Seed: 42,
 			},
 		},
+		Step: step,
 	}
+
+	generators := cmap.NewStringer[GeneratorID, generate.ValueGenerator]()
+	paramID := NewGeneratorID("test", "q1", "id")
+	generator, err := generate.NewValueGenerator(42, 1, descriptor.GetQueries()[0].GetParams()[0])
+	require.NoError(t, err)
+	generators.Set(paramID, generator)
+
 	ctx := context.Background()
 	lg := zap.NewNop()
-	gens, err := CollectStepGenerators(buildContext)
+
+	channel := make(errchan.Chan[stroppy.DriverTransaction])
+	go func() {
+		NewTransaction(ctx, lg, generators, buildContext, descriptor, channel)
+	}()
+
+	transactions, err := errchan.Collect[stroppy.DriverTransaction](channel)
 	require.NoError(t, err)
-	qlist, err := NewTransaction(ctx, lg, gens, buildContext, descriptor)
-	require.NoError(t, err)
-	require.NotNil(t, qlist)
-	require.Len(t, qlist.Queries, 3)
-	require.Equal(t, "BEGIN ISOLATION LEVEL READ UNCOMMITTED;", qlist.Queries[0].Request)
-	require.Equal(t, "SELECT * FROM t WHERE id=$1", qlist.Queries[1].Request)
-	require.Equal(t, "COMMIT;", qlist.Queries[2].Request)
-	require.Equal(t, int32(10), qlist.Queries[1].Params[0].GetInt32())
+	require.Len(t, transactions, 1)
+	require.Len(t, transactions[0].Queries, 1)
+	require.Equal(t, "SELECT * FROM t WHERE id=$1", transactions[0].Queries[0].Request)
+	require.Equal(t, int32(10), transactions[0].Queries[0].Params[0].GetInt32())
 }

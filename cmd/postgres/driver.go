@@ -3,45 +3,43 @@ package main
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5/pgconn"
+	trmpgx "github.com/avito-tech/go-transaction-manager/drivers/pgxv5/v2"
+	"github.com/avito-tech/go-transaction-manager/trm/v2/manager"
 	"go.uber.org/zap"
 
 	"github.com/stroppy-io/stroppy-core/pkg/logger"
 	"github.com/stroppy-io/stroppy-core/pkg/plugins/driver"
 	stroppy "github.com/stroppy-io/stroppy-core/pkg/proto"
+	"github.com/stroppy-io/stroppy-core/pkg/utils/errchan"
 
 	"github.com/stroppy-io/stroppy-postgres/internal/pool"
 	"github.com/stroppy-io/stroppy-postgres/internal/queries"
 )
 
-type Connection interface {
-	// Exec executes the given SQL statement with the provided arguments in the context of the Executor.
-	//
-	// Parameters:
-	// - ctx: The context.Context object.
-	// - sql: The SQL statement to execute.
-	// - arguments: The arguments to be passed to the SQL statement.
-	//
-	// Returns:
-	// - pgconn.CommandTag: The command tag returned by the execution.
-	// - error: An error if the execution fails.
-	Exec(ctx context.Context, sql string, arguments ...interface{}) (pgconn.CommandTag, error)
-	Close()
-}
-
 type QueryBuilder interface {
 	Build(
 		ctx context.Context,
 		logger *zap.Logger,
-		buildQueriesContext *stroppy.BuildQueriesContext,
-	) (*stroppy.DriverQueriesList, error)
+		buildQueriesContext *stroppy.UnitBuildContext,
+	) (*stroppy.DriverTransactionList, error)
+	BuildStream(
+		ctx context.Context,
+		logger *zap.Logger,
+		buildQueriesContext *stroppy.UnitBuildContext,
+		channel errchan.Chan[stroppy.DriverTransaction],
+	)
 	ValueToPgxValue(value *stroppy.Value) (any, error)
 }
 
 type Driver struct {
-	logger   *zap.Logger
-	connPool Connection
-	builder  QueryBuilder
+	logger  *zap.Logger
+	pgxPool interface {
+		Executor
+		Close()
+	}
+	txManager  *manager.Manager
+	txExecutor *TxExecutor
+	builder    QueryBuilder
 }
 
 func NewDriver() driver.Plugin { //nolint: ireturn // allow
@@ -55,56 +53,89 @@ func NewDriver() driver.Plugin { //nolint: ireturn // allow
 func (d *Driver) Initialize(ctx context.Context, runContext *stroppy.StepContext) error {
 	connPool, err := pool.NewPool(
 		ctx,
-		runContext.GetConfig().GetDriver(),
+		runContext.GetGlobalConfig().GetRun().GetDriver(),
 		d.logger.Named(pool.LoggerName),
 	)
 	if err != nil {
 		return err
 	}
 
-	d.connPool = connPool
+	d.pgxPool = connPool
 
 	d.builder, err = queries.NewQueryBuilder(runContext)
 	if err != nil {
 		return err
 	}
 
+	d.txManager = manager.Must(trmpgx.NewDefaultFactory(connPool))
+	d.txExecutor = NewTxExecutor(connPool)
+
 	return nil
 }
 
-func (d *Driver) BuildQueries(
+func (d *Driver) BuildTransactionsFromUnit(
 	ctx context.Context,
-	buildQueriesContext *stroppy.BuildQueriesContext,
-) (*stroppy.DriverQueriesList, error) {
-	return d.builder.Build(ctx, d.logger, buildQueriesContext)
+	buildUnitContext *stroppy.UnitBuildContext,
+) (*stroppy.DriverTransactionList, error) {
+	return d.builder.Build(ctx, d.logger, buildUnitContext)
 }
 
-func (d *Driver) RunQuery(ctx context.Context, query *stroppy.DriverQuery) error {
-	d.logger.Debug(
-		"run query",
-		zap.String("name", query.GetName()),
-		zap.String("sql", query.GetRequest()),
-		zap.Any("args", query.GetParams()),
-	)
+func (d *Driver) BuildTransactionsFromUnitStream(
+	ctx context.Context,
+	buildUnitContext *stroppy.UnitBuildContext,
+) (errchan.Chan[stroppy.DriverTransaction], error) {
+	channel := make(errchan.Chan[stroppy.DriverTransaction])
+	go func() {
+		d.builder.BuildStream(ctx, d.logger, buildUnitContext, channel)
+	}()
 
-	values := make([]any, len(query.GetParams()))
+	return channel, nil
+}
 
-	for i, v := range query.GetParams() {
-		val, err := d.builder.ValueToPgxValue(v)
+func (d *Driver) RunTransaction(
+	ctx context.Context,
+	transaction *stroppy.DriverTransaction,
+) error {
+	if transaction.GetIsolationLevel() == stroppy.TxIsolationLevel_TX_ISOLATION_LEVEL_UNSPECIFIED {
+		return d.runTransactionInternal(ctx, transaction, d.pgxPool)
+	}
+
+	return d.txManager.DoWithSettings(
+		ctx,
+		NewStroppyIsolationSettings(transaction),
+		func(ctx context.Context) error {
+			return d.runTransactionInternal(ctx, transaction, d.txExecutor)
+		})
+}
+
+func (d *Driver) runTransactionInternal(
+	ctx context.Context,
+	transaction *stroppy.DriverTransaction,
+	executor Executor,
+) error {
+	for _, query := range transaction.GetQueries() {
+		values := make([]any, len(query.GetParams()))
+
+		for i, v := range query.GetParams() {
+			val, err := d.builder.ValueToPgxValue(v)
+			if err != nil {
+				return err
+			}
+
+			values[i] = val
+		}
+
+		_, err := executor.Exec(ctx, query.GetRequest(), values...)
 		if err != nil {
 			return err
 		}
-
-		values[i] = val
 	}
 
-	_, err := d.connPool.Exec(ctx, query.GetRequest(), values...)
-
-	return err
+	return nil
 }
 
 func (d *Driver) Teardown(_ context.Context) error {
-	d.connPool.Close()
+	d.pgxPool.Close()
 
 	return nil
 }

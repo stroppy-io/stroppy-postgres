@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	stroppy "github.com/stroppy-io/stroppy-core/pkg/proto"
+	"github.com/stroppy-io/stroppy-core/pkg/utils/errchan"
 )
 
 func TestNewCreateTable_Success(t *testing.T) {
@@ -17,10 +18,16 @@ func TestNewCreateTable_Success(t *testing.T) {
 	}
 	ctx := context.Background()
 	lg := zap.NewNop()
-	qlist, err := NewCreateTable(ctx, lg, 42, descriptor)
+
+	channel := make(errchan.Chan[stroppy.DriverTransaction])
+	go func() {
+		NewCreateTable(ctx, lg, 42, descriptor, channel)
+	}()
+
+	transactions, err := errchan.Collect[stroppy.DriverTransaction](channel)
 	require.NoError(t, err)
-	require.NotNil(t, qlist)
-	require.NotEmpty(t, qlist.Queries)
+	require.NotEmpty(t, transactions)
+	require.NotEmpty(t, transactions[0].Queries)
 }
 
 func TestNewCreateTable_Error(t *testing.T) {
@@ -30,9 +37,15 @@ func TestNewCreateTable_Error(t *testing.T) {
 	}
 	ctx := context.Background()
 	lg := zap.NewNop()
-	table, err := NewCreateTable(ctx, lg, 42, descriptor)
+
+	channel := make(errchan.Chan[stroppy.DriverTransaction])
+	go func() {
+		NewCreateTable(ctx, lg, 42, descriptor, channel)
+	}()
+
+	transactions, err := errchan.Collect[stroppy.DriverTransaction](channel)
 	require.NoError(t, err)
-	require.NotNil(t, table)
-	require.NotEmpty(t, table.Queries)
-	require.Empty(t, table.Queries[0].Params)
+	require.NotEmpty(t, transactions)
+	require.NotEmpty(t, transactions[0].Queries)
+	require.Empty(t, transactions[0].Queries[0].Params)
 }

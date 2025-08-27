@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	stroppy "github.com/stroppy-io/stroppy-core/pkg/proto"
+	"github.com/stroppy-io/stroppy-core/pkg/utils/errchan"
 )
 
 func newQuery(
@@ -58,30 +59,68 @@ func newQuery(
 }
 
 func NewQuery(
-	_ context.Context,
+	ctx context.Context,
 	lg *zap.Logger,
 	generators Generators,
 	buildContext *stroppy.StepContext,
 	descriptor *stroppy.QueryDescriptor,
-) (*stroppy.DriverQueriesList, error) {
+	channel errchan.Chan[stroppy.DriverTransaction],
+) {
+	defer errchan.Close[stroppy.DriverTransaction](channel)
 	lg.Debug("build query",
 		zap.String("name", descriptor.GetName()),
 		zap.String("query", descriptor.GetSql()),
 		zap.Any("params", descriptor.GetParams()),
 	)
 
-	queries := make([]*stroppy.DriverQuery, 0)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			for i := uint64(0); i < descriptor.GetCount(); i++ { //nolint: intrange // allow
+				query, err := newQuery(generators, buildContext, descriptor)
+				if err != nil {
+					errchan.Send[stroppy.DriverTransaction](channel, nil, err)
 
-	for i := uint64(0); i < descriptor.GetCount(); i++ { //nolint: intrange // allow
-		query, err := newQuery(generators, buildContext, descriptor)
-		if err != nil {
-			return nil, err
+					return
+				}
+
+				errchan.Send[stroppy.DriverTransaction](channel, &stroppy.DriverTransaction{
+					Queries: []*stroppy.DriverQuery{query},
+				}, err)
+			}
+
+			return
 		}
+	}
+}
 
-		queries = append(queries, query)
+func NewQuerySync(
+	ctx context.Context,
+	lg *zap.Logger,
+	generators Generators,
+	buildContext *stroppy.StepContext,
+	descriptor *stroppy.QueryDescriptor,
+) (*stroppy.DriverTransaction, error) {
+	channel := make(errchan.Chan[stroppy.DriverTransaction])
+
+	go func() {
+		NewQuery(ctx, lg, generators, buildContext, descriptor, channel)
+	}()
+
+	transactions, err := errchan.CollectCtx[stroppy.DriverTransaction](ctx, channel)
+	if err != nil {
+		return nil, err
 	}
 
-	return &stroppy.DriverQueriesList{
+	queries := make([]*stroppy.DriverQuery, 0)
+
+	for _, tx := range transactions {
+		queries = append(queries, tx.GetQueries()...)
+	}
+
+	return &stroppy.DriverTransaction{
 		Queries: queries,
 	}, nil
 }
